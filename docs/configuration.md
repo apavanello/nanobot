@@ -1602,6 +1602,63 @@ Selecting a transcription provider does not configure credentials by itself. For
 
 If you are adding a new transcription provider, see [`development.md`](./development.md#adding-a-transcription-provider).
 
+## Decisions Settings
+
+The decisions layer routes tool selection through a small typed decision model (a "System One" model such as TypeSafe Jev, or any model in OpenRouter's Decisions catalog) before the main LLM sees the request. It can narrow the tool list the LLM sees, execute zero-argument tools directly when confidence is high, and log every decision next to what the LLM actually did for calibration.
+
+Configure it under the top-level `decisions` section:
+
+```json
+{
+  "decisions": {
+    "enabled": true,
+    "provider": "openrouter",
+    "model": "typesafe/jev-1.13",
+    "mode": "shadow",
+    "threshold": 0.75,
+    "topK": 5,
+    "minTools": 8,
+    "scopes": ["chat"]
+  }
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `false` | Master switch. Disabled, the agent behaves exactly as if the layer did not exist. |
+| `provider` | `"openrouter"` | Decision backend: `"openrouter"` (one key for the whole Decisions catalog) or `"typesafe"` (first-party Jev API). |
+| `model` | provider default | Canonical model slug. Pin a dated build (e.g. `typesafe/jev-1.13`) — aliases can shift probabilities between builds. With OpenRouter, list live options via `GET /api/v1/models?output_modalities=decisions`. |
+| `mode` | `"shadow"` | `"shadow"` logs decisions without acting (safe starting point); `"filter"` additionally narrows the tools the LLM sees; `"fastpath"` also executes zero-required-argument tools directly when confidence passes `threshold`; `"dual"` runs the fast path but still calls the LLM to quantify savings (test-only; costs more). |
+| `threshold` | `0.75` | Minimum confidence for the fast path (0–1). Treat it as the autonomy dial; raise it to make the layer more conservative. |
+| `topK` | `5` | Size of the filtered tool list the LLM sees in `filter`/`fastpath`/`dual` modes. |
+| `minTools` | `8` | Below this many available tools, the decision call is skipped — filtering a short list saves nothing. |
+| `scopes` | `["chat"]` | Where the layer is active: any of `"chat"`, `"subagent"`, `"cron"`. Turns from scheduled automations, Dream consolidation, and subagents run through the same provider seam, so enabling a scope is a config change, not a code change. |
+
+Credentials live under `providers`, next to your chat providers, with the usual environment-variable fallbacks (`OPENROUTER_API_KEY`, `TYPESAFE_API_KEY`):
+
+```json
+{
+  "providers": {
+    "openrouter": {
+      "apiKey": "sk-or-..."
+    },
+    "typesafe": {
+      "apiKey": "ts-..."
+    }
+  },
+  "decisions": {
+    "enabled": true,
+    "provider": "openrouter",
+    "model": "typesafe/jev-1.13",
+    "mode": "shadow"
+  }
+}
+```
+
+Inspect what the layer did with `nanobot decisions report` (see [`cli-reference.md`](./cli-reference.md)); records are stored per session under the instance data directory. Start in `shadow` mode, check the agreement rate and fast-path eligibility in the report, then graduate to `filter` and `fastpath` once the numbers convince you.
+
+If you are adding a new decision provider, see [`development.md`](./development.md#the-decision-layer-system-one-models).
+
 ## Channel Settings
 
 Global settings that apply to all channels. Configure under the `channels` section in `~/.nanobot/config.json`:

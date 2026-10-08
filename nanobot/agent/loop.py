@@ -479,6 +479,10 @@ class AgentLoop:
                 sessions_root=data_dir / "sessions" if data_dir is not None else None,
             )
         provider = extra.pop("provider", None) or make_provider(config)
+        if config.decisions.enabled:
+            from nanobot.decisions.wrapper import wrap_provider_with_decisions
+
+            provider = wrap_provider_with_decisions(provider, config)
         resolved = config.resolve_preset()
         model = extra.pop("model", None) or resolved.model
         context_window_tokens = extra.pop("context_window_tokens", None) or resolved.context_window_tokens

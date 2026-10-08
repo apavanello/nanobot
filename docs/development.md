@@ -119,3 +119,27 @@ At minimum, cover:
 6. Update user-facing docs.
 
 Add the provider to [`configuration.md`](./configuration.md) where users choose `transcription.provider`, but keep implementation details in this development guide.
+
+## The Decision Layer (System One Models)
+
+The decision layer lets a small typed decision model (TypeSafe Jev, or any model in OpenRouter's Decisions catalog) select tools and narrow the tool list the LLM sees. It lives entirely at the provider seam — `nanobot/decisions/wrapper.py` wraps the outermost chat provider the same way `FallbackProvider` does, so `agent/loop.py` and `agent/runner.py` stay untouched. With `decisions.enabled=false` (the default), behavior is identical to upstream.
+
+Layout:
+
+- `nanobot/decisions/types.py` — wire types for the TypeSafe `/v1/systemone` contract (choice/score/noul) plus edge parsing. `probabilities`/`confidence` are optional on the wire; a missing value stays `None` and the semantic layer must defer, never default.
+- `nanobot/decisions/registry.py` + `factory.py` — provider names, default models, credential env vars, and adapter loading (the two-layer transcription pattern, not the LLM provider registry).
+- `nanobot/decisions/typesafe_provider.py` / `openrouter_provider.py` — HTTP adapters with shared retry discipline (`_http.py`).
+- `nanobot/decisions/selector.py` — scope detection (`chat`/`subagent`/`cron` from request context + usage source), state building, and the mode policy (shadow/filter/fastpath/dual).
+- `nanobot/decisions/wrapper.py` — `DecisionProviderWrapper`: per model round it can filter `tools`, synthesize a zero-arg tool call (fast path), and log the decision next to what the LLM actually did.
+- `nanobot/decisions/store.py` + `report.py` — append-only JSONL per session under `<data_dir>/decisions/`, and the aggregations behind `nanobot decisions report`.
+
+Adding a decision provider:
+
+1. Add credentials to `ProvidersConfig` if the provider is new (e.g. `typesafe`).
+2. Write an adapter class with `__init__(api_key, api_base, model)` and `async decide(state, questions) -> DecisionResult`. Operational failures return an error result instead of raising.
+3. Register a `DecisionProviderSpec` in `nanobot/decisions/registry.py` (name, adapter path, default model, env key, API base, endpoint path).
+4. Cover config resolution, request shape, response parsing (including missing-confidence deferral), and retry behavior in `tests/decisions/`.
+
+Pin canonical, dated model slugs in `decisions.model` — aliases can shift probabilities between builds, and calibrated thresholds do not transfer across builds. The live OpenRouter catalog is `GET /api/v1/models?output_modalities=decisions`; never hardcode it.
+
+The fast path only executes tools with no required parameters: decision models return a typed choice, not call arguments. Everything else gets the filtered list and the LLM decides arguments. The shadow log's `fastpath_eligible` flag is the calibration signal for extending this.

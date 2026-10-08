@@ -34,6 +34,9 @@
 
 # nanobot
 
+> [!NOTE]
+> **Fork addition — System One Decision Layer.** This fork (branch `feat/systemone-decisions`, tag `v0.3.5-systemone.1`) adds an opt-in decision layer that routes tool selection through a small typed decision model — TypeSafe Jev or any model in OpenRouter's Decisions catalog (Clef, d1, Tev1, Mercury Decide, Span-01, ...) — before the main LLM sees the request. It can narrow the tool list the LLM sees, execute zero-argument tools directly when confidence is high, and shadow-log every decision next to what the LLM actually did. Off by default (`decisions.enabled: false`); with it off, behavior is identical to upstream. See [Decisions Settings](./docs/configuration.md#decisions-settings) and `nanobot decisions report`.
+
 🐈 **nanobot** is an ultra-lightweight, open-source, self-hosted personal AI agent framework written in Python. It runs in a WebUI, terminal, or chat apps and combines tools, long-term memory, MCP integrations, model routing, multi-agent delegation, scheduled automation, and an OpenAI-compatible API in a small, readable core.
 
 ## Start Here
@@ -55,6 +58,7 @@ nanobot is a self-hosted personal AI agent runtime. It can:
 - run in a browser WebUI or terminal
 - connect to Telegram, Discord, Slack, WeChat, Email, Mattermost, Linear, and other channels
 - use tools such as files, shell, web search, web fetch, MCP, cron, image generation, and subagents
+- pre-select tools with a System One decision model (fork: Jev via TypeSafe or the OpenRouter Decisions catalog)
 - keep session history and long-term memory through Dream
 - run long-horizon goals and scheduled automations
 - expose a Python SDK and OpenAI-compatible API for integrations

@@ -413,6 +413,14 @@ remain accepted as no-op compatibility aliases.
 | `nanobot provider logout xai-grok --config <path>` | Remove the selected nanobot instance's xAI OAuth state |
 | `nanobot provider logout github-copilot` | Remove GitHub Copilot OAuth state |
 
+## Decisions
+
+| Command | Description |
+|---|---|
+| `nanobot decisions report --days 30` | Aggregate decision-layer activity: decision counts, skip reasons, decision↔LLM agreement rate, fast-path eligibility and executions, and token savings (`--session <key>` restricts to one session, `--json` prints machine-readable output) |
+
+Savings semantics: "potential" counts fast-path-eligible rounds where the LLM still ran (shadow/filter/dual modes), measured directly from those rounds' token usage; "estimated" values executed fast-path rounds at the measured average tokens per LLM round. Use the report to calibrate `decisions.threshold` before enabling `fastpath` mode.
+
 See [`providers.md`](./providers.md#oauth-providers) for when OAuth providers need explicit provider/model selection.
 
 ## Useful First Checks

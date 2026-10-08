@@ -81,6 +81,28 @@ class DreamConfig(Base):
         return f"every {hours}h"
 
 
+class DecisionsConfig(Base):
+    """System One decision layer for tool selection.
+
+    When enabled, a typed decision model (TypeSafe Jev or the OpenRouter
+    Decisions catalog) picks tools and narrows the tool list the LLM sees.
+    Modes: ``shadow`` logs decisions without acting (safe default),
+    ``filter`` narrows the tools the LLM sees, ``fastpath`` also executes
+    zero-required-arg tools directly when confidence passes the threshold,
+    and ``dual`` runs fastpath while still calling the LLM to quantify
+    savings (test-only; costs more).
+    """
+
+    enabled: bool = False  # Disabled = behavior identical to upstream
+    provider: str | None = None  # Validated by nanobot.decisions.registry.
+    model: str | None = None  # Canonical slug; pin to freeze probabilities
+    mode: Literal["shadow", "filter", "fastpath", "dual"] = "shadow"
+    threshold: float = Field(default=0.75, ge=0.0, le=1.0)  # Min confidence to act on a decision
+    top_k: int = Field(default=5, ge=1, le=50)  # Filtered tool list size
+    min_tools: int = Field(default=8, ge=1)  # Below this many tools, skip the decision call
+    scopes: list[Literal["chat", "subagent", "cron"]] = Field(default_factory=lambda: ["chat"])
+
+
 class InlineFallbackConfig(Base):
     """One inline fallback model configuration."""
 
@@ -254,6 +276,7 @@ class ProvidersConfig(Base):
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)
     orcarouter: ProviderConfig = Field(default_factory=ProviderConfig)  # OrcaRouter API gateway
+    typesafe: ProviderConfig = Field(default_factory=ProviderConfig)  # TypeSafe (Jev) decision model
     assemblyai: ProviderConfig = Field(default_factory=ProviderConfig)  # AssemblyAI voice transcription
     huggingface: ProviderConfig = Field(default_factory=ProviderConfig)
     skywork: ProviderConfig = Field(default_factory=ProviderConfig)  # Skywork / APIFree API gateway
@@ -428,6 +451,7 @@ class Config(BaseSettings):
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
+    decisions: DecisionsConfig = Field(default_factory=DecisionsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
