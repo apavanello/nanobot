@@ -44,7 +44,11 @@ def _current_session_key() -> str:
     return session_key if session_key else "unknown"
 
 
-def _fastpath_response(tool_name: str, latency_ms: int | None) -> LLMResponse:
+def _fastpath_response(
+    tool_name: str,
+    arguments: dict[str, Any],
+    latency_ms: int | None,
+) -> LLMResponse:
     """Synthesize the response the runner expects when the LLM requests a tool."""
     usage = LLMUsage.empty_request()
     if latency_ms is not None and latency_ms > 0:
@@ -55,7 +59,7 @@ def _fastpath_response(tool_name: str, latency_ms: int | None) -> LLMResponse:
             ToolCallRequest(
                 id=f"{_FASTPATH_MARKER}-{uuid.uuid4().hex[:12]}",
                 name=tool_name,
-                arguments={},
+                arguments=arguments,
             )
         ],
         finish_reason="tool_calls",
@@ -166,7 +170,8 @@ class DecisionProviderWrapper(LLMProvider):
 
         if selection.fastpath_tool is not None:
             latency = selection.decision.latency_ms if selection.decision is not None else None
-            response = _fastpath_response(selection.fastpath_tool, latency)
+            arguments = selection.fastpath_args if selection.fastpath_args is not None else {}
+            response = _fastpath_response(selection.fastpath_tool, arguments, latency)
             llm_response: LLMResponse | None = None
             if self._mode == "dual":
                 # Quantification mode: also call the LLM (with the filtered
@@ -250,6 +255,10 @@ class DecisionProviderWrapper(LLMProvider):
                     llm_generation_ms=source.generation_ms if source is not None else None,
                     fastpath_eligible=selection.fastpath_eligible,
                     fastpath_executed=selection.fastpath_tool is not None,
+                    fastpath_args=selection.fastpath_args,
+                    args_certainty=selection.args_certainty,
+                    needs_tool=selection.needs_tool,
+                    deferred_reason=selection.deferred_reason,
                     filtered_tool_count=(
                         len(selection.filtered_tools) if selection.filtered_tools is not None else None
                     ),
@@ -279,6 +288,9 @@ def wrap_provider_with_decisions(provider: LLMProvider, config: Any) -> LLMProvi
         threshold=decisions.threshold,
         top_k=decisions.top_k,
         min_tools=decisions.min_tools,
+        arg_threshold=decisions.arg_threshold,
+        filter_strategy=decisions.filter_strategy,
+        extract_args=decisions.extract_args,
     )
     return DecisionProviderWrapper(
         provider,

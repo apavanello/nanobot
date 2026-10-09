@@ -129,8 +129,8 @@ Layout:
 - `nanobot/decisions/types.py` — wire types for the TypeSafe `/v1/systemone` contract (choice/score/noul) plus edge parsing. `probabilities`/`confidence` are optional on the wire; a missing value stays `None` and the semantic layer must defer, never default.
 - `nanobot/decisions/registry.py` + `factory.py` — provider names, default models, credential env vars, and adapter loading (the two-layer transcription pattern, not the LLM provider registry).
 - `nanobot/decisions/typesafe_provider.py` / `openrouter_provider.py` — HTTP adapters with shared retry discipline (`_http.py`).
-- `nanobot/decisions/selector.py` — scope detection (`chat`/`subagent`/`cron` from request context + usage source), state building, and the mode policy (shadow/filter/fastpath/dual).
-- `nanobot/decisions/wrapper.py` — `DecisionProviderWrapper`: per model round it can filter `tools`, synthesize a zero-arg tool call (fast path), and log the decision next to what the LLM actually did.
+- `nanobot/decisions/selector.py` — scope detection (`chat`/`subagent`/`cron` from request context + usage source), state building, bounded extraction (`plan_tool`/`build_questions`/`resolve_args`), and the mode policy (shadow/filter/fastpath/dual).
+- `nanobot/decisions/wrapper.py` — `DecisionProviderWrapper`: per model round it can filter `tools` (pinned to the chosen tool by default), synthesize a tool call with extracted arguments (fast path), and log the decision next to what the LLM actually did.
 - `nanobot/decisions/store.py` + `report.py` — append-only JSONL per session under `<data_dir>/decisions/`, and the aggregations behind `nanobot decisions report`.
 
 Adding a decision provider:
@@ -142,4 +142,4 @@ Adding a decision provider:
 
 Pin canonical, dated model slugs in `decisions.model` — aliases can shift probabilities between builds, and calibrated thresholds do not transfer across builds. The live OpenRouter catalog is `GET /api/v1/models?output_modalities=decisions`; never hardcode it.
 
-The fast path only executes tools with no required parameters: decision models return a typed choice, not call arguments. Everything else gets the filtered list and the LLM decides arguments. The shadow log's `fastpath_eligible` flag is the calibration signal for extending this.
+The fast path uses bounded extraction: a tool is executable directly when every parameter has a closed set of values (JSON Schema `const`, a primitive-only `enum`, or `boolean`). The same decision call asks the value of each such argument plus, for optional ones, whether the conversation states a value at all (unstated optional arguments are omitted, never invented), and cross-checks the tool choice against an independent "is a tool needed?" judgment. Certainty is the weakest judgment across all arguments and must pass `argThreshold`. Free-form arguments (paths, commands, any text) can never be extracted this way — decision models pick among options, they do not generate — so those tools are pinned instead (`filterStrategy: "pin"`): the LLM sees only the chosen tool and fills in its arguments. `fastpath_eligible` in the shadow log is the calibration signal for how far the fast path reaches.

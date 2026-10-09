@@ -32,6 +32,24 @@ def _tools() -> list[dict[str, Any]]:
     return [_tool(f"tool_{i}", required=["path"]) for i in range(4)] + [_tool("status", required=[])]
 
 
+def _enum_tool(name: str = "set_lights") -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": f"{name} tool",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "room": {"enum": ["kitchen", "bedroom"]},
+                    "on": {"type": "boolean"},
+                },
+                "required": ["room", "on"],
+            },
+        },
+    }
+
+
 class FakeInnerProvider(LLMProvider):
     """Single-attempt fake mirroring what the retry machinery calls."""
 
@@ -75,17 +93,32 @@ class FakeInnerProvider(LLMProvider):
 
 
 class FakeDecisionProvider:
-    def __init__(self, answer: DecisionAnswer | None = None, error: str | None = None) -> None:
+    def __init__(
+        self,
+        answer: DecisionAnswer | None = None,
+        error: str | None = None,
+        needs: float | None = 0.9,
+        extra_answers: dict[str, DecisionAnswer] | None = None,
+    ) -> None:
         self.answer = answer or DecisionAnswer(type="choice", choice="none")
         self.error = error
+        self.needs = needs
+        self.extra_answers = extra_answers or {}
         self.calls: list[dict[str, Any]] = []
 
     async def decide(self, state: Any, questions: dict[str, Any]) -> DecisionResult:
         self.calls.append({"state": state})
+        if self.error is not None:
+            answers: dict[str, DecisionAnswer] = {}
+        else:
+            answers = {"tool_selection": self.answer}
+            if self.needs is not None:
+                answers["needs_tool"] = DecisionAnswer(type="noul", noul=self.needs)
+            answers.update(self.extra_answers)
         return DecisionResult(
             provider="fake",
             model="fake-1.13",
-            answers={} if self.error is not None else {"tool_selection": self.answer},
+            answers=answers,
             error=self.error,
             latency_ms=42,
             input_tokens=120,
@@ -102,6 +135,7 @@ def _wrapper(
     scopes: list[str] | None = None,
     threshold: float = 0.75,
     top_k: int = 3,
+    filter_strategy: str = "pin",
     inner: FakeInnerProvider | None = None,
 ) -> tuple[DecisionProviderWrapper, FakeInnerProvider]:
     decider = ToolSelectionDecider(
@@ -111,6 +145,7 @@ def _wrapper(
         threshold=threshold,
         top_k=top_k,
         min_tools=2,
+        filter_strategy=filter_strategy,
     )
     fake_inner = inner or FakeInnerProvider()
     wrapper = DecisionProviderWrapper(fake_inner, decider=decider, store=store, mode=mode)
@@ -175,10 +210,10 @@ class TestFilterMode:
                 type="choice",
                 choice="status",
                 probabilities={"status": 0.8, "tool_2": 0.2},
-                confidence=0.5,
+                confidence=0.9,
             )
         )
-        wrapper, inner = _wrapper(decision, store, mode="filter", top_k=2)
+        wrapper, inner = _wrapper(decision, store, mode="filter", top_k=2, filter_strategy="top_k")
         with chat_scope():
             await wrapper.chat_stream_with_retry(messages=_MESSAGES, tools=_tools(), model="m")
         seen = inner.calls[0]["tools"]
@@ -189,6 +224,33 @@ class TestFilterMode:
         record = list(store.iter_records())[0]
         assert record.filtered_tool_count == 2
         assert record.total_tool_count == 5
+        assert record.deferred_reason is None
+
+    async def test_pin_strategy_passes_only_chosen_tool(self, tmp_path) -> None:
+        store = DecisionsStore(root=tmp_path)
+        decision = FakeDecisionProvider(
+            DecisionAnswer(type="choice", choice="tool_2", confidence=0.9)
+        )
+        wrapper, inner = _wrapper(decision, store, mode="filter")
+        with chat_scope():
+            await wrapper.chat_stream_with_retry(messages=_MESSAGES, tools=_tools(), model="m")
+        names = [t["function"]["name"] for t in inner.calls[0]["tools"]]
+        assert names == ["tool_2"]
+        record = list(store.iter_records())[0]
+        assert record.filtered_tool_count == 1
+
+    async def test_below_threshold_does_not_narrow(self, tmp_path) -> None:
+        store = DecisionsStore(root=tmp_path)
+        decision = FakeDecisionProvider(
+            DecisionAnswer(type="choice", choice="status", confidence=0.5)
+        )
+        wrapper, inner = _wrapper(decision, store, mode="filter")
+        with chat_scope():
+            await wrapper.chat_stream_with_retry(messages=_MESSAGES, tools=_tools(), model="m")
+        assert len(inner.calls[0]["tools"]) == 5
+        record = list(store.iter_records())[0]
+        assert record.filtered_tool_count is None
+        assert record.deferred_reason == "low_confidence"
 
 
 class TestFastpathMode:
@@ -214,7 +276,31 @@ class TestFastpathMode:
         assert record.fastpath_executed is True
         assert record.llm_tool_names is None
 
-    async def test_required_args_tool_falls_back_to_llm(self, tmp_path) -> None:
+    async def test_closed_set_args_are_filled(self, tmp_path) -> None:
+        store = DecisionsStore(root=tmp_path)
+        tools = [_tool(f"tool_{i}", required=["path"]) for i in range(4)] + [_enum_tool()]
+        decision = FakeDecisionProvider(
+            DecisionAnswer(type="choice", choice="set_lights", confidence=0.95),
+            extra_answers={
+                "arg:4:room": DecisionAnswer(type="choice", choice="kitchen", confidence=0.97),
+                "arg:4:on": DecisionAnswer(type="noul", noul=0.93),
+            },
+        )
+        wrapper, inner = _wrapper(decision, store, mode="fastpath")
+        with chat_scope():
+            response = await wrapper.chat_stream_with_retry(messages=_MESSAGES, tools=tools, model="m")
+        assert inner.calls == []
+        call = response.tool_calls[0]
+        assert call.name == "set_lights"
+        assert call.arguments == {"room": "kitchen", "on": True}
+        record = list(store.iter_records())[0]
+        assert record.fastpath_executed is True
+        assert record.fastpath_args == {"room": "kitchen", "on": True}
+        assert record.args_certainty == 0.93
+        assert record.needs_tool == 0.9
+        assert record.deferred_reason is None
+
+    async def test_open_args_tool_is_pinned_but_not_executed(self, tmp_path) -> None:
         store = DecisionsStore(root=tmp_path)
         decision = FakeDecisionProvider(
             DecisionAnswer(type="choice", choice="tool_1", confidence=0.99)
@@ -223,10 +309,14 @@ class TestFastpathMode:
         with chat_scope():
             response = await wrapper.chat_stream_with_retry(messages=_MESSAGES, tools=_tools(), model="m")
         assert len(inner.calls) == 1
+        # Pin: the LLM only sees the chosen tool and fills its arguments.
+        names = [t["function"]["name"] for t in inner.calls[0]["tools"]]
+        assert names == ["tool_1"]
         assert response.tool_calls[0].name == "tool_0"
         record = list(store.iter_records())[0]
         assert record.fastpath_executed is False
         assert record.fastpath_eligible is False
+        assert record.deferred_reason is None
 
     async def test_low_confidence_falls_back(self, tmp_path) -> None:
         store = DecisionsStore(root=tmp_path)
@@ -237,8 +327,10 @@ class TestFastpathMode:
         with chat_scope():
             await wrapper.chat_stream_with_retry(messages=_MESSAGES, tools=_tools(), model="m")
         assert len(inner.calls) == 1
+        assert len(inner.calls[0]["tools"]) == 5
         record = list(store.iter_records())[0]
         assert record.fastpath_eligible is False
+        assert record.deferred_reason == "low_confidence"
 
 
 class TestDualMode:

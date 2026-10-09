@@ -76,9 +76,17 @@ def report(
         "Skipped",
         ", ".join(f"{k}={v}" for k, v in sorted(result.skipped_by_reason.items())) or "none",
     )
+    table.add_row(
+        "Deferred (not acted on)",
+        ", ".join(f"{k}={v}" for k, v in sorted(result.deferred_by_reason.items())) or "none",
+    )
     agreement = "—" if result.agreement_rate is None else f"{result.agreement_rate:.1%}"
     table.add_row(
         f"Decision↔LLM agreement ({result.agreement_matches}/{result.agreement_total})", agreement
+    )
+    needs = "—" if result.needs_tool_agreement_rate is None else f"{result.needs_tool_agreement_rate:.1%}"
+    table.add_row(
+        f"Needs-tool cross-check ({result.needs_tool_matches}/{result.needs_tool_total})", needs
     )
     table.add_row(
         "Fast-path eligible",
@@ -95,6 +103,8 @@ def report(
     table.add_row("Avg decision latency", latency)
     confidence = "—" if result.avg_confidence is None else f"{result.avg_confidence:.3f}"
     table.add_row("Avg confidence", confidence)
+    certainty = "—" if result.avg_args_certainty is None else f"{result.avg_args_certainty:.3f}"
+    table.add_row("Avg args certainty (extracted)", certainty)
     console.print(table)
 
     if result.chosen_counts:

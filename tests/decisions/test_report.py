@@ -109,6 +109,36 @@ class TestBuildReport:
         assert report.skipped_by_reason == {"min_tools": 1, "error": 2}
         assert report.decided == 0
 
+    def test_deferred_reasons_counted(self, tmp_path) -> None:
+        store = DecisionsStore(root=tmp_path)
+        store.record(_record(chosen="tool_a", deferred_reason="low_confidence"))
+        store.record(_record(chosen="tool_b", deferred_reason="low_confidence"))
+        store.record(_record(chosen="tool_c", deferred_reason="args_below_threshold"))
+        report = build_report(store)
+        assert report.deferred_by_reason == {"low_confidence": 2, "args_below_threshold": 1}
+
+    def test_needs_tool_cross_check_agreement(self, tmp_path) -> None:
+        store = DecisionsStore(root=tmp_path)
+        store.record(_record(chosen="tool_a", needs_tool=0.9))
+        store.record(_record(chosen="tool_b", needs_tool=0.4))  # wants tool, judgment says no
+        store.record(_record(chosen="none", needs_tool=0.1))
+        store.record(_record(chosen="none", needs_tool=0.8))  # says none, judgment says tool
+        store.record(_record(chosen="tool_c", needs_tool=None))  # not counted
+        report = build_report(store)
+        assert report.needs_tool_total == 4
+        assert report.needs_tool_matches == 2
+        assert report.needs_tool_agreement_rate == 0.5
+
+    def test_args_certainty_average(self, tmp_path) -> None:
+        store = DecisionsStore(root=tmp_path)
+        store.record(_record(chosen="tool_a", args_certainty=0.9))
+        store.record(_record(chosen="tool_b", args_certainty=0.7))
+        report = build_report(store)
+        assert report.avg_args_certainty == 0.8
+        assert "avg_args_certainty" in report.to_dict()
+        assert "deferred_by_reason" in report.to_dict()
+        assert "needs_tool_agreement_rate" in report.to_dict()
+
     def test_days_filter_excludes_old_records(self, tmp_path) -> None:
         store = DecisionsStore(root=tmp_path)
         store.record(_record(ts_ms=_NOW_MS - 10 * _DAY_MS, chosen="old_tool"))

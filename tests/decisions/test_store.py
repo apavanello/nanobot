@@ -47,6 +47,22 @@ class TestStore:
         assert records[0].confidence == 0.9
         assert records[0].llm_tool_names == ["list_files"]
 
+    def test_fastpath_fields_roundtrip(self, tmp_path) -> None:
+        store = DecisionsStore(root=tmp_path)
+        store.record(
+            _record(
+                fastpath_args={"room": "kitchen", "on": True},
+                args_certainty=0.93,
+                needs_tool=0.9,
+                deferred_reason="args_below_threshold",
+            )
+        )
+        record = list(store.iter_records())[0]
+        assert record.fastpath_args == {"room": "kitchen", "on": True}
+        assert record.args_certainty == 0.93
+        assert record.needs_tool == 0.9
+        assert record.deferred_reason == "args_below_threshold"
+
     def test_sessions_are_separate_files(self, tmp_path) -> None:
         store = DecisionsStore(root=tmp_path)
         store.record(_record(session_key="chat-a"))

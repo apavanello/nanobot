@@ -31,6 +31,11 @@ class DecisionsReport:
     by_scope: dict[str, int] = field(default_factory=dict)
     decided: int = 0
     skipped_by_reason: dict[str, int] = field(default_factory=dict)
+    deferred_by_reason: dict[str, int] = field(default_factory=dict)
+    needs_tool_total: int = 0
+    needs_tool_matches: int = 0
+    args_certainty_samples: int = 0
+    args_certainty_total: float = 0.0
     agreement_total: int = 0
     agreement_matches: int = 0
     fastpath_eligible: int = 0
@@ -67,6 +72,18 @@ class DecisionsReport:
         return self.confidence_total / self.confidence_samples
 
     @property
+    def needs_tool_agreement_rate(self) -> float | None:
+        if self.needs_tool_total == 0:
+            return None
+        return self.needs_tool_matches / self.needs_tool_total
+
+    @property
+    def avg_args_certainty(self) -> float | None:
+        if self.args_certainty_samples == 0:
+            return None
+        return self.args_certainty_total / self.args_certainty_samples
+
+    @property
     def total_tokens_saved_estimate(self) -> int:
         return self.potential_tokens_saved + self.estimated_tokens_saved
 
@@ -78,6 +95,9 @@ class DecisionsReport:
             "by_scope": self.by_scope,
             "decided": self.decided,
             "skipped_by_reason": self.skipped_by_reason,
+            "deferred_by_reason": self.deferred_by_reason,
+            "needs_tool_agreement_rate": self.needs_tool_agreement_rate,
+            "avg_args_certainty": self.avg_args_certainty,
             "agreement_rate": self.agreement_rate,
             "fastpath_eligible": self.fastpath_eligible,
             "fastpath_executed": self.fastpath_executed,
@@ -135,6 +155,17 @@ def build_report(
         elif record.chosen is not None:
             report.decided += 1
             report.chosen_counts[record.chosen] = report.chosen_counts.get(record.chosen, 0) + 1
+        if record.deferred_reason is not None:
+            report.deferred_by_reason[record.deferred_reason] = (
+                report.deferred_by_reason.get(record.deferred_reason, 0) + 1
+            )
+        if record.chosen is not None and record.needs_tool is not None:
+            report.needs_tool_total += 1
+            if (record.chosen != "none") == (record.needs_tool >= 0.5):
+                report.needs_tool_matches += 1
+        if record.args_certainty is not None:
+            report.args_certainty_samples += 1
+            report.args_certainty_total += record.args_certainty
 
         if _decision_is_agreement_pair(record):
             report.agreement_total += 1

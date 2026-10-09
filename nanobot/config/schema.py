@@ -85,12 +85,14 @@ class DecisionsConfig(Base):
     """System One decision layer for tool selection.
 
     When enabled, a typed decision model (TypeSafe Jev or the OpenRouter
-    Decisions catalog) picks tools and narrows the tool list the LLM sees.
-    Modes: ``shadow`` logs decisions without acting (safe default),
-    ``filter`` narrows the tools the LLM sees, ``fastpath`` also executes
-    zero-required-arg tools directly when confidence passes the threshold,
-    and ``dual`` runs fastpath while still calling the LLM to quantify
-    savings (test-only; costs more).
+    Decisions catalog) picks tools, cross-checks that a tool is needed at
+    all, and narrows the tool list the LLM sees. Modes: ``shadow`` logs
+    decisions without acting (safe default), ``filter`` narrows the tools
+    the LLM sees (pinned to the chosen tool by default), ``fastpath`` also
+    executes the call directly when every argument of the chosen tool has a
+    closed set of values (const/enum/boolean) and the decision model fills
+    them with enough certainty, and ``dual`` runs fastpath while still
+    calling the LLM to quantify savings (test-only; costs more).
     """
 
     enabled: bool = False  # Disabled = behavior identical to upstream
@@ -98,9 +100,12 @@ class DecisionsConfig(Base):
     model: str | None = None  # Canonical slug; pin to freeze probabilities
     mode: Literal["shadow", "filter", "fastpath", "dual"] = "shadow"
     threshold: float = Field(default=0.75, ge=0.0, le=1.0)  # Min confidence to act on a decision
-    top_k: int = Field(default=5, ge=1, le=50)  # Filtered tool list size
+    top_k: int = Field(default=5, ge=1, le=50)  # Filtered tool list size (filterStrategy=topK)
     min_tools: int = Field(default=8, ge=1)  # Below this many tools, skip the decision call
     scopes: list[Literal["chat", "subagent", "cron"]] = Field(default_factory=lambda: ["chat"])
+    arg_threshold: float = Field(default=0.8, ge=0.0, le=1.0)  # Min certainty for extracted args
+    filter_strategy: Literal["pin", "top_k"] = "pin"  # pin = LLM sees only the chosen tool
+    extract_args: bool = True  # Bounded extraction; False = const-only fastpath, cheaper decisions
 
 
 class InlineFallbackConfig(Base):

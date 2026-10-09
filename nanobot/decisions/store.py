@@ -69,6 +69,10 @@ class DecisionRecord:
     llm_generation_ms: int | None = None
     fastpath_eligible: bool = False
     fastpath_executed: bool = False
+    fastpath_args: dict[str, Any] | None = None
+    args_certainty: float | None = None
+    needs_tool: float | None = None
+    deferred_reason: str | None = None
     filtered_tool_count: int | None = None
     total_tool_count: int | None = None
 

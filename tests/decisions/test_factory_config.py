@@ -19,6 +19,9 @@ class TestDecisionsConfig:
         assert cfg.mode == "shadow"
         assert cfg.threshold == 0.75
         assert cfg.scopes == ["chat"]
+        assert cfg.arg_threshold == 0.8
+        assert cfg.filter_strategy == "pin"
+        assert cfg.extract_args is True
 
     def test_config_root_has_decisions_section(self) -> None:
         config = Config()
@@ -26,19 +29,39 @@ class TestDecisionsConfig:
 
     def test_camelcase_roundtrip(self) -> None:
         config = Config.model_validate(
-            {"decisions": {"enabled": True, "provider": "openrouter", "topK": 9, "minTools": 3}}
+            {
+                "decisions": {
+                    "enabled": True,
+                    "provider": "openrouter",
+                    "topK": 9,
+                    "minTools": 3,
+                    "argThreshold": 0.9,
+                    "filterStrategy": "top_k",
+                    "extractArgs": False,
+                }
+            }
         )
         assert config.decisions.enabled is True
         assert config.decisions.top_k == 9
         assert config.decisions.min_tools == 3
+        assert config.decisions.arg_threshold == 0.9
+        assert config.decisions.filter_strategy == "top_k"
+        assert config.decisions.extract_args is False
         dumped = config.model_dump(mode="json", by_alias=True)
         assert dumped["decisions"]["topK"] == 9
+        assert dumped["decisions"]["argThreshold"] == 0.9
+        assert dumped["decisions"]["filterStrategy"] == "top_k"
+        assert dumped["decisions"]["extractArgs"] is False
 
     def test_threshold_bounds(self) -> None:
         with pytest.raises(ValidationError):
             DecisionsConfig(threshold=1.5)
         with pytest.raises(ValidationError):
             DecisionsConfig(mode="aggressive")
+        with pytest.raises(ValidationError):
+            DecisionsConfig(arg_threshold=1.5)
+        with pytest.raises(ValidationError):
+            DecisionsConfig(filter_strategy="narrow")
 
     def test_invalid_scope_rejected(self) -> None:
         with pytest.raises(ValidationError):
