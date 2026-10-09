@@ -10,6 +10,8 @@ from nanobot.decisions.factory import make_decision_provider
 from nanobot.decisions.openrouter_provider import OpenRouterDecisionProvider
 from nanobot.decisions.registry import decision_provider_names, resolve_decision_provider
 from nanobot.decisions.typesafe_provider import TypeSafeDecisionProvider
+from nanobot.decisions.wrapper import DecisionProviderWrapper
+from nanobot.providers.factory import build_provider_snapshot, make_provider
 
 
 class TestDecisionsConfig:
@@ -121,3 +123,49 @@ class TestFactory:
         provider = make_decision_provider(config)
         assert isinstance(provider, OpenRouterDecisionProvider)
         assert provider.api_key == "sk-or-test"
+
+
+def _chat_config(*, decisions_enabled: bool) -> Config:
+    return Config.model_validate(
+        {
+            "agents": {
+                "defaults": {"provider": "anthropic", "model": "anthropic/claude-sonnet-4-5"},
+            },
+            "providers": {
+                "anthropic": {"apiKey": "sk-test"},
+                "openai": {"apiKey": "sk-test"},
+            },
+            "decisions": {
+                "enabled": decisions_enabled,
+                "provider": "openrouter",
+                "model": "typesafe/jev-1.13",
+            },
+            "modelPresets": {
+                "alt": {"model": "gpt-4o", "provider": "openai"},
+            },
+        }
+    )
+
+
+class TestProviderSeamWiring:
+    """The decision layer attaches at ``make_provider`` so every construction
+    path (default, preset selection, config refresh, SDK override) is wrapped."""
+
+    def test_make_provider_wraps_when_enabled(self) -> None:
+        provider = make_provider(_chat_config(decisions_enabled=True))
+        assert isinstance(provider, DecisionProviderWrapper)
+        assert provider.inner.__class__.__name__ == "AnthropicProvider"
+
+    def test_make_provider_bare_when_disabled(self) -> None:
+        provider = make_provider(_chat_config(decisions_enabled=False))
+        assert not isinstance(provider, DecisionProviderWrapper)
+
+    def test_preset_snapshot_provider_is_wrapped(self) -> None:
+        # Regression: a modelPreset builds its provider through the factory
+        # funnel too; before the seam moved to make_provider the preset's
+        # provider skipped the decision layer entirely.
+        snapshot = build_provider_snapshot(
+            _chat_config(decisions_enabled=True), preset_name="alt"
+        )
+        assert isinstance(snapshot.provider, DecisionProviderWrapper)
+        assert snapshot.provider.inner.get_default_model() == "gpt-4o"

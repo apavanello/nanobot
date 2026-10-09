@@ -122,7 +122,7 @@ Add the provider to [`configuration.md`](./configuration.md) where users choose 
 
 ## The Decision Layer (System One Models)
 
-The decision layer lets a small typed decision model (TypeSafe Jev, or any model in OpenRouter's Decisions catalog) select tools and narrow the tool list the LLM sees. It lives entirely at the provider seam — `nanobot/decisions/wrapper.py` wraps the outermost chat provider the same way `FallbackProvider` does, so `agent/loop.py` and `agent/runner.py` stay untouched. With `decisions.enabled=false` (the default), behavior is identical to upstream.
+The decision layer lets a small typed decision model (TypeSafe Jev, or any model in OpenRouter's Decisions catalog) select tools and narrow the tool list the LLM sees. It lives entirely at the provider seam — `nanobot/decisions/wrapper.py` wraps the outermost chat provider the same way `FallbackProvider` does, so `agent/loop.py` and `agent/runner.py` stay untouched. The wrapper attaches inside `make_provider()` (`nanobot/providers/factory.py`), the single funnel every construction path goes through: the default provider, model-preset selections, config-refresh rebuilds, and SDK overrides each get exactly one wrapper. Fallback leaves (built by `FallbackProvider`'s factory) and the unconfigured setup stub stay bare. With `decisions.enabled=false` (the default), behavior is identical to upstream.
 
 Layout:
 

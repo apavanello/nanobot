@@ -107,6 +107,11 @@ class DecisionProviderWrapper(LLMProvider):
     # Delegation surface (mirrors FallbackProvider)
 
     @property
+    def inner(self) -> LLMProvider:
+        """The wrapped provider, for attachment points that see through wrappers."""
+        return self._inner
+
+    @property
     def generation(self) -> GenerationSettings:
         return self._inner.generation
 

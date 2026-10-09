@@ -298,6 +298,15 @@ def make_provider(
             ],
         )
 
+    if config.decisions.enabled:
+        # The decision layer must wrap every provider the loop can chat
+        # through — the default, preset selections, config-refresh rebuilds,
+        # and SDK overrides all funnel through here. Fallback leaves are
+        # built by ``provider_factory`` above and stay bare: the wrapper
+        # around the chain already made the round's decision.
+        from nanobot.decisions.wrapper import wrap_provider_with_decisions
+
+        provider = wrap_provider_with_decisions(provider, config)
     return provider
 
 

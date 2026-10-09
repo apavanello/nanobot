@@ -419,8 +419,14 @@ def _run_gateway(
 
     def _observe_provider(snapshot: ProviderSnapshot) -> ProviderSnapshot:
         snapshot.provider.set_llm_call_observer(record_llm_call)
-        if isinstance(snapshot.provider, FallbackProvider):
-            snapshot.provider.set_fallback_model_observer(fallback_model_observer)
+        fallback_owner = snapshot.provider
+        inner = getattr(fallback_owner, "inner", None)
+        if isinstance(inner, FallbackProvider):
+            # The decision layer wraps the chain; fallback events come from
+            # the FallbackProvider it wraps.
+            fallback_owner = inner
+        if isinstance(fallback_owner, FallbackProvider):
+            fallback_owner.set_fallback_model_observer(fallback_model_observer)
         return snapshot
 
     def _load_gateway_provider_snapshot(
